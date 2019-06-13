@@ -2,7 +2,7 @@
 # coding: utf-8
 
 # In[1]:
-
+import argparse 
 
 import numpy as np
 import os
@@ -20,12 +20,12 @@ data_annotation_path = 'VOCdevkit/VOC2012/Annotations'
 image_height = 448
 image_width  = 448
 image_depth  = 3
-learning_rate = 1e-4
+learning_rate = 1e-6
 #constants
 lambda_coord = 5
 lambda_noobj = 0.5
 epsilon = 1e-9
-batch_size = 50
+batch_size = 20
 epoch = 1000
 
 model_save_path = os.getcwd() + '/model/model.ckpt'
@@ -132,8 +132,8 @@ def get_label(xml_file_path):
             y_max = obj['bndbox']['ymax']
 
             #center of the box.
-            center_x = int(float(x_max)) - int(float(x_min)) 
-            center_y = int(float(y_max)) - int(float(y_min)) 
+            center_x = round(float(x_max), 2) - round(float(x_min), 2) 
+            center_y = round(float(y_max), 2) - round(float(y_min), 2) 
 
             #the width and height of each cell when we divide the image into S x S cells.
             cell_size_x = int(width)/S 
@@ -156,8 +156,8 @@ def get_label(xml_file_path):
             y = y_in_cell/cell_size_y
 
             #normalize the width and height of the bounding box relative to the entire image's width and height.
-            w = (int(float(x_max)) - int(float(x_min)))/int(float(width))
-            h = (int(float(y_max)) - int(float(y_min)))/int(float(height))
+            w = (round(float(x_max),2) - round(float(x_min),2))/round(float(width),2)
+            h = (round(float(y_max),2) - round(float(y_min),2))/round(float(height),2)
             
             #one-hot *list* for the class
             one_hot_list = [0] * C #A list of zeros at length C
@@ -185,8 +185,8 @@ def get_label(xml_file_path):
         y_max = doc['annotation']['object']['bndbox']['ymax']
 
         #center of the box.
-        center_x = int(float(x_max)) - int(float(x_min)) 
-        center_y = int(float(y_max)) - int(float(y_min)) 
+        center_x = round(float(x_max),2) - round(float(x_min),2)
+        center_y = round(float(y_max),2) - round(float(y_min),2) 
 
         #the width and height of each cell when we divide the image into S x S cells.
         cell_size_x = int(width)/S 
@@ -209,8 +209,8 @@ def get_label(xml_file_path):
         y = y_in_cell/cell_size_y
 
         #normalize the width and height of the bounding box relative to the entire image's width and height.
-        w = (int(float(x_max)) - int(float(x_min)))/int(float(width))
-        h = (int(float(y_max)) - int(float(y_min)))/int(float(height))
+        w = (round(float(x_max),2) - round(float(x_min),2))/round(float(width),2)
+        h = (round(float(y_max),2) - round(float(y_min),2))/round(float(height),2)
         
         #one-hot *list* for the class
         one_hot_list = [0] * C #A list of zeros at length C
@@ -431,136 +431,177 @@ def bbox_selector(box1, box2, truth):
 
 
 
-X       = tf.placeholder(tf.float32, shape=(None, image_height, image_width, image_depth), name='X') 
-                                                                                    #(batch_size, 448, 448, 3)
-Y       = tf.placeholder(tf.float32, shape=(None, S**2, 5+C), name='Y') #(batch_size, 49, 25)
-dropout = tf.placeholder(tf.float32, name='dropout') #dropout rate
+with tf.device("/device:GPU:0"):
+    X       = tf.placeholder(tf.float32, shape=(None, image_height, image_width, image_depth), name='X') 
+                                                                                        #(batch_size, 448, 448, 3)
+    Y       = tf.placeholder(tf.float32, shape=(None, S**2, 5+C), name='Y') #(batch_size, 49, 25)
+    dropout = tf.placeholder(tf.float32, name='dropout') #dropout rate
 
-#output size : (batch_size, 224, 224, 64)
-conv1 = tf.contrib.layers.conv2d(X, num_outputs=64, kernel_size=7, stride=2, 
-                                 padding='SAME', activation_fn=tf.nn.leaky_relu)
+    #output size : (batch_size, 224, 224, 64)
 
-#output size : (batch_size, 112, 112, 64)
-conv1_pool = tf.nn.max_pool(conv1, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
+    conv1 = tf.contrib.layers.conv2d(X, num_outputs=64, kernel_size=7, stride=2, 
+                                     padding='SAME', activation_fn=tf.nn.leaky_relu)
 
-#output size : (batch_size, 112, 112, 128)
-conv2 = tf.contrib.layers.conv2d(conv1_pool, num_outputs=128, kernel_size=3, stride=1, 
-                                 padding='SAME', activation_fn=tf.nn.leaky_relu)
+    #output size : (batch_size, 112, 112, 64)
+    conv1_pool = tf.nn.max_pool(conv1, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
 
-#output size : (batch_size, 56, 56, 128)
-conv2_pool = tf.nn.max_pool(conv2, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
+    #output size : (batch_size, 112, 112, 128)
+    conv2 = tf.contrib.layers.conv2d(conv1_pool, num_outputs=192, kernel_size=3, stride=1, 
+                                     padding='SAME', activation_fn=tf.nn.leaky_relu)
 
-#output size : (batch_size, 56, 56, 192)
-conv3 = tf.contrib.layers.conv2d(conv2_pool, num_outputs=192, kernel_size=1, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
+    #output size : (batch_size, 56, 56, 128)
+    conv2_pool = tf.nn.max_pool(conv2, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
 
-#output size : (batch_size, 56, 56, 256)
-conv4 = tf.contrib.layers.conv2d(conv3, num_outputs=256, kernel_size=3, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
+    #output size : (batch_size, 56, 56, 192)
+    conv3 = tf.contrib.layers.conv2d(conv2_pool, num_outputs=128, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
 
-#output size : (batch_size, 56, 56, 256)
-conv5 = tf.contrib.layers.conv2d(conv4, num_outputs=256, kernel_size=1, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
+    #output size : (batch_size, 56, 56, 256)
+    conv4 = tf.contrib.layers.conv2d(conv3, num_outputs=256, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
 
-#output size : (batch_size, 28, 28, 256)
-conv5_pool = tf.nn.max_pool(conv5, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
-
-#output size : (batch_size, 28, 28, 512)
-conv6 = tf.contrib.layers.conv2d(conv5_pool, num_outputs=512, kernel_size=3, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
-
-#output size : (batch_size, 28, 28, 512)
-conv7 = tf.contrib.layers.conv2d(conv6, num_outputs=512, kernel_size=1, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
-
-#output size : (batch_size, 14, 14, 512)
-conv7_pool = tf.nn.max_pool(conv7, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
-
-#output size : (batch_size, 14, 14, 600)
-conv8 = tf.contrib.layers.conv2d(conv7_pool, num_outputs=600, kernel_size=3, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
-
-#output size : (batch_size, 7, 7, 600)
-conv8_pool = tf.nn.max_pool(conv8, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
-
-#output size : (batch_size, 7, 7, 600)
-final_conv = tf.contrib.layers.conv2d(conv8_pool, num_outputs=600, kernel_size=3, stride=1,
-                                padding='SAME', activation_fn=tf.nn.leaky_relu)
-
-output_shape = 7*7*600
-#feature vector shape : (batch_size, 29400)
-feature_vector = tf.reshape(final_conv, (-1, 7*7*600))
-
-#Weight and bias variables for Fully connected layers
-W1 = tf.Variable(tf.truncated_normal([output_shape, 4096], stddev=0.1))
-B1 = tf.Variable(tf.constant(1.0, shape=[4096]))
-W2 = tf.Variable(tf.truncated_normal([4096, 7*7*30], stddev=0.1))
-B2 = tf.Variable(tf.constant(1.0, shape=[7*7*30]))
-
-#First fully-connected layer
-fc1 = tf.add(tf.matmul(feature_vector, W1), B1)
-fc1_actv = tf.nn.leaky_relu(fc1) #non-linear actv func
-
-#dropout
-dropout_layer = tf.nn.dropout(fc1_actv, dropout)
-
-#Second fully-connected layer
-fc2 = tf.add(tf.matmul(dropout_layer, W2), B2)
-
-Y_pred = tf.nn.sigmoid(fc2) #shape : [batch_size, 7*7*30]             
+    #output size : (batch_size, 56, 56, 256)
+    conv5 = tf.contrib.layers.conv2d(conv4, num_outputs=256, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
 
 
-# In[12]:
+    #output size : (batch_size, 28, 28, 512)
+    conv6 = tf.contrib.layers.conv2d(conv5, num_outputs=512, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv6_pool = tf.nn.max_pool(conv6, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
+
+    #output size : (batch_size, 28, 28, 512)
+    conv7 = tf.contrib.layers.conv2d(conv6_pool, num_outputs=256, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv8 = tf.contrib.layers.conv2d(conv7, num_outputs=512, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+    
+    conv9 = tf.contrib.layers.conv2d(conv8, num_outputs=256, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv10 = tf.contrib.layers.conv2d(conv9, num_outputs=512, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv11 = tf.contrib.layers.conv2d(conv10, num_outputs=256, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv12 = tf.contrib.layers.conv2d(conv11, num_outputs=512, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv13 = tf.contrib.layers.conv2d(conv12, num_outputs=256, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv14 = tf.contrib.layers.conv2d(conv13, num_outputs=512, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv15 = tf.contrib.layers.conv2d(conv14, num_outputs=512, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv16 = tf.contrib.layers.conv2d(conv15, num_outputs=1024, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv16_pool = tf.nn.max_pool(conv16, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
+
+    conv17 = tf.contrib.layers.conv2d(conv16_pool, num_outputs=512, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv18 = tf.contrib.layers.conv2d(conv17, num_outputs=1024, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv19 = tf.contrib.layers.conv2d(conv18, num_outputs=512, kernel_size=1, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv20 = tf.contrib.layers.conv2d(conv19, num_outputs=1024, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv21 = tf.contrib.layers.conv2d(conv20, num_outputs=1024, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv22 = tf.contrib.layers.conv2d(conv21, num_outputs=1024, kernel_size=3, stride=2,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv23 = tf.contrib.layers.conv2d(conv22, num_outputs=1024, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
+
+    conv24 = tf.contrib.layers.conv2d(conv23, num_outputs=1024, kernel_size=3, stride=1,
+                                    padding='SAME', activation_fn=tf.nn.leaky_relu)
 
 
-#Loss function
+    output_shape = 7*7*1024
+    #feature vector shape : (batch_size, 29400)
+    feature_vector = tf.reshape(conv24, (-1, 7*7*1024))
 
 
+    #Weight and bias variables for Fully connected layers
+    W1 = tf.Variable(tf.truncated_normal([output_shape, 4096], stddev=0.3))
+    B1 = tf.Variable(tf.constant(1.0, shape=[4096]))
+    W2 = tf.Variable(tf.truncated_normal([4096, 7*7*30], stddev=0.3))
+    B2 = tf.Variable(tf.constant(1.0, shape=[7*7*30]))
 
-prediction = tf.reshape(Y_pred, (-1, 49, 30), name='prediction')
+    #First fully-connected layer
+    fc1 = tf.add(tf.matmul(feature_vector, W1), B1)
+    fc1_actv = tf.nn.leaky_relu(fc1) #non-linear actv func
 
-#input first bounding box, second bounding box and the ground truth bounding box
-box_selection1, box_selection2, iou = bbox_selector(prediction[:,:,0:4], prediction[:,:,5:9], Y[:,:,:4])
+    #dropout
+    dropout_layer = tf.nn.dropout(fc1_actv, dropout)
 
-#box_selection will ensure to pick the highest IoU predicted bounding box, while Y[:,:,4] at the beginning of
-#the term will ensure if there's any object at all in a particular cell.
-loss_1 = lambda_coord *(tf.reduce_sum(Y[:,:,4] * (box_selection1 *
-                                                 ((prediction[:,:,0] - Y[:,:,0])**2 + 
-                                                  (prediction[:,:,1] - Y[:,:,1])**2) +
-                                                  box_selection2 * 
-                                                  ((prediction[:,:,5] - Y[:,:,0])**2 +
-                                                   (prediction[:,:,6] - Y[:,:,1])**2))))
+    #Second fully-connected layer
+    fc2 = tf.add(tf.matmul(dropout_layer, W2), B2)
+
+    Y_pred = tf.nn.sigmoid(fc2) #shape : [batch_size, 7*7*30]             
 
 
-loss_2 = lambda_coord *(tf.reduce_sum(Y[:,:,4] * (box_selection1 *
-                                                 ((tf.sqrt(prediction[:,:,2]+ epsilon) - tf.sqrt(Y[:,:,2]+ epsilon) )**2 + 
-                                                  (tf.sqrt(prediction[:,:,3]+ epsilon)- tf.sqrt(Y[:,:,3]+ epsilon))**2) +
-                                                  box_selection2 * 
-                                                  ((tf.sqrt(prediction[:,:,7]+ epsilon) - tf.sqrt(Y[:,:,2]+ epsilon))**2 +
-                                                   (tf.sqrt(prediction[:,:,8]+ epsilon) - tf.sqrt(Y[:,:,3]+ epsilon))**2))))
+    # In[12]:
 
-#this part, I'm not sure if I understood it correctly
-loss_3 = tf.reduce_sum(Y[:,:,4] * (box_selection1 * 
-                                   (prediction[:,:,4] * iou[:,:,0]) +
-                                    box_selection2* 
-                                   (prediction[:,:,9] * iou[:,:,1]) -
-                                    (Y[:,:,4] *(box_selection1*iou[:,:,0] + box_selection2*iou[:,:,1])))**2)
+with tf.device("/device:GPU:1"):
+    #Loss function
 
-#change the 1.0 into 0.0 and 0.0 into 1.0 in Y[:,:,4].
-#cast the float to bool and back to float since logical_not module requires bool type data
-logical_not = tf.cast(tf.logical_not(tf.cast(Y[:,:,4], tf.bool)), tf.float32)
+    prediction = tf.reshape(Y_pred, (-1, 49, 30), name='prediction')
 
-loss_4 = lambda_noobj * (tf.reduce_sum(logical_not * (box_selection1 * 
-                                   (prediction[:,:,4] * iou[:,:,0]) +
-                                    box_selection2* 
-                                   (prediction[:,:,9] * iou[:,:,1]) -
-                                    (Y[:,:,4] *(box_selection1*iou[:,:,0] + box_selection2*iou[:,:,1])))**2))
+    #input first bounding box, second bounding box and the ground truth bounding box
+    box_selection1, box_selection2, iou = bbox_selector(prediction[:,:,0:4], prediction[:,:,5:9], Y[:,:,:4])
 
-loss_5 = tf.reduce_sum(Y[:,:,4] * tf.reduce_sum((prediction[:,:,11:] - Y[:,:,6:])**2, axis=2))
+    #box_selection will ensure to pick the highest IoU predicted bounding box, while Y[:,:,4] at the beginning of
+    #the term will ensure if there's any object at all in a particular cell.
+    loss_1 = lambda_coord *(tf.reduce_sum(Y[:,:,4] * (box_selection1 *
+                                                     ((prediction[:,:,0] - Y[:,:,0])**2 + 
+                                                      (prediction[:,:,1] - Y[:,:,1])**2) +
+                                                      box_selection2 * 
+                                                      ((prediction[:,:,5] - Y[:,:,0])**2 +
+                                                       (prediction[:,:,6] - Y[:,:,1])**2))))
 
-total_loss = loss_1 + loss_2+ loss_3 + loss_4 + loss_5
 
-optimizer = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
+    loss_2 = lambda_coord *(tf.reduce_sum(Y[:,:,4] * (box_selection1 *
+                                                     ((tf.sqrt(prediction[:,:,2]+ epsilon) - tf.sqrt(Y[:,:,2]+ epsilon) )**2 + 
+                                                      (tf.sqrt(prediction[:,:,3]+ epsilon)- tf.sqrt(Y[:,:,3]+ epsilon))**2) +
+                                                      box_selection2 * 
+                                                      ((tf.sqrt(prediction[:,:,7]+ epsilon) - tf.sqrt(Y[:,:,2]+ epsilon))**2 +
+                                                       (tf.sqrt(prediction[:,:,8]+ epsilon) - tf.sqrt(Y[:,:,3]+ epsilon))**2))))
+
+    #this part, I'm not sure if I understood it correctly
+    loss_3 = tf.reduce_sum(Y[:,:,4] * (box_selection1 * 
+                                       (prediction[:,:,4] * iou[:,:,0]) +
+                                        box_selection2* 
+                                       (prediction[:,:,9] * iou[:,:,1]) -
+                                        (Y[:,:,4] *(box_selection1*iou[:,:,0] + box_selection2*iou[:,:,1])))**2)
+
+    #change the 1.0 into 0.0 and 0.0 into 1.0 in Y[:,:,4].
+    #cast the float to bool and back to float since logical_not module requires bool type data
+    logical_not = tf.cast(tf.logical_not(tf.cast(Y[:,:,4], tf.bool)), tf.float32)
+
+    loss_4 = lambda_noobj * (tf.reduce_sum(logical_not * (box_selection1 * 
+                                       (prediction[:,:,4] * iou[:,:,0]) +
+                                        box_selection2* 
+                                       (prediction[:,:,9] * iou[:,:,1]) -
+                                        (Y[:,:,4] *(box_selection1*iou[:,:,0] + box_selection2*iou[:,:,1])))**2))
+
+    loss_5 = tf.reduce_sum(Y[:,:,4] * tf.reduce_sum((prediction[:,:,11:] - Y[:,:,6:])**2, axis=2))
+
+    total_loss = loss_1 + loss_2+ loss_3 + loss_4 + loss_5
+
+    optimizer = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
 
 tf.add_to_collection('prediction', prediction)
 tf.add_to_collection('X', X)
@@ -591,6 +632,8 @@ except:
 
 total_images = len(list_images)
 
+loss_total = 0.0
+
 for epoch_idx in range(epoch):
     
     loss = 0
@@ -605,15 +648,26 @@ for epoch_idx in range(epoch):
 
         images, labels = load_dataset(i, end_batch_size)
 
-        loss += sess.run([total_loss, optimizer], feed_dict={X:images, Y:labels, dropout:1.0})[0]
+        loss += sess.run([total_loss, optimizer], feed_dict={X:images, Y:labels, dropout:0.9})[0]
         
     print("Epoch : ", str(epoch_idx), "Loss : ", str(loss))
     #record loss log
+
+    if epoch_idx == 0:
+        loss_total = loss
+        saver.save(sess, model_save_path)
+
+    else:
+
+        if loss < loss_total:
+            loss_total = loss
+            saver.save(sess, model_save_path)
+
     file = open('loss_record.txt', 'a')
     file.write("The loss at epoch " + str(epoch_idx) + " is : " + str(loss) + " \n")
     file.close()
 
-    saver.save(sess, model_save_path)
+    
 
 #save model
 
