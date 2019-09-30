@@ -20,7 +20,7 @@ data_annotation_path = 'VOCdevkit/VOC2012/Annotations'
 image_height = 448
 image_width  = 448
 image_depth  = 3
-learning_rate = 1e-6
+learning_rate = 3e-7
 #constants
 lambda_coord = 5
 lambda_noobj = 0.5
